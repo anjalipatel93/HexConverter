@@ -1,0 +1,645 @@
+import { useState } from 'react';
+import './App.css';
+
+const emptyRadixResults = { hex: '', decimal: '', binary: '', octal: '' };
+const emptyVoltageResults = { peak: '', peakToPeak: '' };
+
+function formatVoltage(value) {
+  const numericValue = Number(value);
+
+  if (Number.isNaN(numericValue)) {
+    return value;
+  }
+
+  return numericValue
+    .toFixed(4)
+    .replace(/\.0+$/, '')
+    .replace(/(\.\d*?)0+$/, '$1');
+}
+
+function getWaveformPath(type, width, height) {
+  const centerY = height / 2;
+  const amplitude = height * 0.33;
+  const left = 24;
+  const right = width - 24;
+  const usableWidth = right - left;
+
+  if (type === 'square') {
+    const topY = centerY - amplitude;
+    const bottomY = centerY + amplitude;
+    const segment = usableWidth / 6;
+
+    return [
+      `M ${left} ${bottomY}`,
+      `L ${left} ${topY}`,
+      `L ${left + segment} ${topY}`,
+      `L ${left + segment} ${bottomY}`,
+      `L ${left + segment * 2} ${bottomY}`,
+      `L ${left + segment * 2} ${topY}`,
+      `L ${left + segment * 3} ${topY}`,
+      `L ${left + segment * 3} ${bottomY}`,
+      `L ${left + segment * 4} ${bottomY}`,
+      `L ${left + segment * 4} ${topY}`,
+      `L ${left + segment * 5} ${topY}`,
+      `L ${left + segment * 5} ${bottomY}`,
+      `L ${right} ${bottomY}`,
+    ].join(' ');
+  }
+
+  if (type === 'triangle') {
+    const topY = centerY - amplitude;
+    const bottomY = centerY + amplitude;
+    const quarter = usableWidth / 4;
+
+    return [
+      `M ${left} ${centerY}`,
+      `L ${left + quarter} ${topY}`,
+      `L ${left + quarter * 2} ${bottomY}`,
+      `L ${left + quarter * 3} ${topY}`,
+      `L ${right} ${centerY}`,
+    ].join(' ');
+  }
+
+  const points = [];
+  const totalPoints = 120;
+
+  for (let index = 0; index <= totalPoints; index += 1) {
+    const ratio = index / totalPoints;
+    const x = left + ratio * usableWidth;
+    const y = centerY - amplitude * Math.sin(ratio * Math.PI * 4);
+    points.push(`${index === 0 ? 'M' : 'L'} ${x} ${y}`);
+  }
+
+  return points.join(' ');
+}
+
+function WaveformPreview({ waveform, vrms, peak, peakToPeak }) {
+  const width = 420;
+  const height = 220;
+  const centerY = height / 2;
+  const amplitude = height * 0.33;
+  const topY = centerY - amplitude;
+  const bottomY = centerY + amplitude;
+  const path = getWaveformPath(waveform, width, height);
+
+  return (
+    <div className="results card waveform-card">
+      <h2>Waveform Preview</h2>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="waveform-svg"
+        role="img"
+        aria-label={`${waveform} wave voltage graph`}
+      >
+        <line x1="24" y1={centerY} x2={width - 24} y2={centerY} className="wave-axis" />
+        <line x1="24" y1={topY} x2={width - 24} y2={topY} className="wave-guide" />
+        <line x1="24" y1={bottomY} x2={width - 24} y2={bottomY} className="wave-guide" />
+        <line x1="40" y1={topY} x2="40" y2={bottomY} className="wave-measure" />
+        <path d={path} className="wave-path" />
+        <text x="48" y={topY - 8} className="wave-label">
+          +Vpeak {formatVoltage(peak)} V
+        </text>
+        <text x="48" y={bottomY + 20} className="wave-label">
+          -Vpeak {formatVoltage(peak)} V
+        </text>
+        <text x="48" y={centerY - 8} className="wave-label">
+          0 V
+        </text>
+        <text x="48" y={centerY + 18} className="wave-label">
+          Vpp {formatVoltage(peakToPeak)} V
+        </text>
+      </svg>
+      <p className="helper-text">
+        Waveform: {waveform.charAt(0).toUpperCase() + waveform.slice(1)} · Vrms{' '}
+        {formatVoltage(vrms)} V
+      </p>
+    </div>
+  );
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState('radix');
+  // const [activeTab, setActiveTab] = useState('V=IR')
+  const [input, setInput] = useState('');
+  const [inputFormat, setInputFormat] = useState('hex');
+  const [results, setResults] = useState(emptyRadixResults);
+  const [error, setError] = useState('');
+  const [vrmsInput, setVrmsInput] = useState('');
+  const [rInput, setRInput] = useState('');
+  const [vInput, setVInput] = useState('');
+  const [iInput, setIInput] = useState('');
+  const [virType1, setVirType1] = useState('voltage');
+  const [virType2, setVirType2] = useState('current');
+  const [sirType1, setSirType1] = useState('voltage');
+  const [sirType2, setSirType2] = useState('current');
+  const [sirValue1, setSirValue1] = useState('');
+  const [sirValue2, setSirValue2] = useState('');
+  const [sirValue3, setSirValue3] = useState('');
+  const [virValue1, setVirValue1] = useState('');
+  const [virValue2, setVirValue2] = useState('');
+  const [virResult, setVirResult] = useState('');
+  const [virError, setVirError] = useState('');
+  const [waveform, setWaveform] = useState('sine');
+  const [voltageResults, setVoltageResults] = useState(emptyVoltageResults);
+  const [voltageError, setVoltageError] = useState('');
+
+  const getVirPlaceholder = (type) =>
+    type === 'current'
+      ? 'Enter current'
+      : type === 'resistance'
+        ? 'Enter resistance'
+        : type === 'power'
+          ? 'Enter power'
+          : 'Enter voltage';
+
+const getSirPlaceholder = (type) => 
+    type === 'S'
+      ? 'Enter S value'
+      : type === 'I' ? 'Enter I value': 'Enter R value';
+        
+  const isValidHex = (value) => /^[0-9a-fA-F]+$/.test(value);
+  const isValidDecimal = (value) => /^[0-9]+$/.test(value);
+  const isValidBinary = (value) => /^[01]+$/.test(value);
+  const isValidOctal = (value) => /^[0-7]+$/.test(value);
+
+  const resetRadixState = () => {
+    setInput('');
+    setInputFormat('hex');
+    setResults(emptyRadixResults);
+    setError('');
+  };
+
+  const resetVoltageState = () => {
+    setVrmsInput('');
+    setWaveform('sine');
+    setVoltageResults(emptyVoltageResults);
+    setVoltageError('');
+  };
+
+  const handleConvert = () => {
+    const trimmed = input.trim().replace(/^0x/i, '');
+    if (!trimmed) {
+      setError('Please enter a value.');
+      setResults(emptyRadixResults);
+      return;
+    }
+
+    let decimalValue;
+    try {
+      switch (inputFormat) {
+        case 'hex':
+          if (!isValidHex(trimmed)) throw new Error('Invalid hex value. Use 0-9, A-F.');
+          decimalValue = parseInt(trimmed, 16);
+          break;
+        case 'decimal':
+          if (!isValidDecimal(trimmed)) throw new Error('Invalid decimal value. Use 0-9.');
+          decimalValue = parseInt(trimmed, 10);
+          break;
+        case 'binary':
+          if (!isValidBinary(trimmed)) throw new Error('Invalid binary value. Use 0-1.');
+          decimalValue = parseInt(trimmed, 2);
+          break;
+        case 'octal':
+          if (!isValidOctal(trimmed)) throw new Error('Invalid octal value. Use 0-7.');
+          decimalValue = parseInt(trimmed, 8);
+          break;
+        default:
+          throw new Error('Unknown format');
+      }
+
+      if (decimalValue < 0) throw new Error('Value must be non-negative.');
+
+      setError('');
+      setResults({
+        hex: decimalValue.toString(16).toUpperCase(),
+        decimal: decimalValue.toString(10),
+        binary: decimalValue.toString(2),
+        octal: decimalValue.toString(8),
+      });
+    } catch (err) {
+      setError(err.message);
+      setResults(emptyRadixResults);
+    }
+  };
+
+  const handleVoltageConvert = () => {
+    const trimmed = vrmsInput.trim();
+
+    if (!trimmed) {
+      setVoltageError('Please enter a Vrms value.');
+      setVoltageResults(emptyVoltageResults);
+      return;
+    }
+
+    const numericValue = Number(trimmed);
+
+    if (Number.isNaN(numericValue)) {
+      setVoltageError('Invalid voltage value. Use digits and a decimal point if needed.');
+      setVoltageResults(emptyVoltageResults);
+      return;
+    }
+
+    if (numericValue < 0) {
+      setVoltageError('Voltage must be non-negative.');
+      setVoltageResults(emptyVoltageResults);
+      return;
+    }
+
+    const peak = numericValue * Math.sqrt(2);
+    const peakToPeak = peak * 2;
+
+    setVoltageError('');
+    setVoltageResults({
+      peak: peak.toFixed(4),
+      peakToPeak: peakToPeak.toFixed(4),
+    });
+  };
+
+  // ######### V=IR Calculator #########
+  const handleVIRCalculate = () => {
+    setVirError('');
+    setVirResult('');
+
+    if (virType1 === virType2) {
+      setVirError('Choose two different known values.');
+      return;
+    }
+
+    const trimmed1 = virValue1.trim();
+    const trimmed2 = virValue2.trim();
+
+    if (!trimmed1 || !trimmed2) {
+      setVirError('Please enter both values.');
+      return;
+    }
+
+    const value1 = Number(trimmed1);
+    const value2 = Number(trimmed2);
+
+    if (Number.isNaN(value1) || Number.isNaN(value2)) {
+      setVirError('Values must be valid numbers.');
+      return;
+    }
+
+    let missingType = ['voltage', 'current', 'resistance'].find(
+      (type) => type !== virType1 && type !== virType2
+    );
+
+    if (!missingType) {
+      setVirError('Choose two different known values.');
+      return;
+    }
+
+    let calculated = '';
+
+    if (missingType === 'voltage') {
+      calculated = (value1 * value2).toFixed(4);
+    } else if (missingType === 'current') {
+      const voltage = virType1 === 'voltage' ? value1 : value2;
+      const resistance = virType1 === 'resistance' ? value1 : value2;
+      if (resistance === 0) {
+        setVirError('Resistance cannot be zero.');
+        return;
+      }
+      calculated = (voltage / resistance).toFixed(4);
+    } else if (missingType === 'resistance') {
+      const voltage = virType1 === 'voltage' ? value1 : value2;
+      const current = virType1 === 'current' ? value1 : value2;
+      if (current === 0) {
+        setVirError('Current cannot be zero.');
+        return;
+      }
+      calculated = (voltage / current).toFixed(4);
+    }
+
+    setVirResult(`${missingType.charAt(0).toUpperCase() + missingType.slice(1)} = ${calculated}`);
+  };
+
+
+
+
+
+
+const handleSVICalculate = () => {
+  setVirError('');
+  setVirResult('');
+
+  if (virType1 === virType2) {
+    setVirError('Choose two different known values.');
+    return;
+  }
+
+  const trimmed1 = virValue1.trim();
+  const trimmed2 = virValue2.trim();
+
+  if (!trimmed1 || !trimmed2) {
+    setVirError('Please enter both values.');
+    return;
+  }
+
+  const value1 = Number(trimmed1);
+  const value2 = Number(trimmed2);
+
+  if (Number.isNaN(value1) || Number.isNaN(value2)) {
+    setVirError('Values must be valid numbers.');
+    return;
+  }
+
+  let missingType = ['power', 'voltage', 'current'].find(
+    (type) => type !== virType1 && type !== virType2
+  );
+
+  if (!missingType) {
+    setVirError('Choose two different known values.');
+    return;
+  }
+
+  let calculated = '';
+
+  if (missingType === 'power') {
+    const voltage = virType1 === 'voltage' ? value1 : virType2 === 'voltage' ? value2 : null;
+    const current = virType1 === 'current' ? value1 : virType2 === 'current' ? value2 : null;
+    if (voltage === null || current === null) {
+      setVirError('To calculate power you must provide voltage and current.');
+      return;
+    }
+    calculated = (voltage * current).toFixed(4);
+  } else if (missingType === 'voltage') {
+    const power = virType1 === 'power' ? value1 : value2;
+    const current = virType1 === 'current' ? value1 : value2;
+    if (current === 0) {
+      setVirError('Current cannot be zero.');
+      return;
+    }
+    calculated = (power / current).toFixed(4);
+  } else if (missingType === 'current') {
+    const power = virType1 === 'power' ? value1 : value2;
+    const voltage = virType1 === 'voltage' ? value1 : value2;
+    if (voltage === 0) {
+      setVirError('Voltage cannot be zero.');
+      return;
+    }
+    calculated = (power / voltage).toFixed(4);
+  }
+
+  setVirResult(`${missingType.charAt(0).toUpperCase() + missingType.slice(1)} = ${calculated}`);
+};
+
+
+
+
+
+  const handleKeyDown = (e) => {
+    if (e.key !== 'Enter') {
+      return;
+    }
+    switch (activeTab) {
+      case 'radix':
+        handleConvert();
+        break;
+      case 'voltage':
+        handleVoltageConvert();
+        break;
+      case 'V=RI':
+          handleVIRCalculate();
+        break;
+      case 'S=VI':
+          handleSVICalculate()
+        break;
+      default:
+        break;
+    }
+  };
+
+  return (
+    <div className="container">
+      <h1>🔢 Radix Converter</h1>
+      <p className="subtitle">Switch between radix conversion and an electrical voltage helper</p>
+
+      <div className="tab-row card">
+        <button
+          className={`tab-button ${activeTab === 'radix' ? 'tab-button-active' : ''}`}
+          onClick={() => setActiveTab('radix')}
+          type="button"
+        >
+          Radix Conversion
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'voltage' ? 'tab-button-active' : ''}`}
+          onClick={() => setActiveTab('voltage')}
+          type="button"
+        >
+          Electrical Helper
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'S=VI' ? 'tab-button-active' : ''}`}
+          onClick={() => setActiveTab('S=VI')}
+          type="button"
+        >
+          S=VI
+          
+        </button>
+       
+          <button
+          className={`tab-button ${activeTab === 'V=RI' ? 'tab-button-active' : ''}`}
+          onClick={() => setActiveTab('V=RI')}
+          type="button"
+        >
+          V=RI
+ 
+        </button>
+      </div>
+
+      {activeTab === 'S=VI' ? (
+        <div className="card">
+          <label htmlFor="virSelect1">Select known value 1</label>
+          <select
+            id="virSelect1"
+            value={virType1}
+            onChange={(e) => {
+              const nextType = e.target.value;
+              setVirType1(nextType);
+              if (nextType === virType2) {
+                const fallback = ['voltage', 'current', 'resistance'].find(
+                  (type) => type !== nextType
+                );
+                setVirType2(fallback);
+              }
+            }}
+          >
+            <option value="power">S</option>
+            <option value="voltage">V</option>
+            <option value="current">I</option>
+          </select>
+
+          <label htmlFor="virValue1" style={{ marginTop: '16px' }}>
+            Value
+          </label>
+          <input
+            id="virValue1"
+            type="text"
+            value={virValue1}
+            onChange={(e) => setVirValue1(e.target.value)}
+            placeholder={getVirPlaceholder(virType1)}
+          />
+
+          <label htmlFor="virSelect2" style={{ marginTop: '16px' }}>
+            Select known value 2
+          </label>
+          <select
+            id="virSelect2"
+            value={virType2}
+            onChange={(e) => {
+              if (e.target.value === virType1) {
+                return;
+              }
+              setVirType2(e.target.value);
+            }}
+          >
+            <option value="power" disabled={virType1 === 'power'}>
+              S
+            </option>
+            <option value="voltage" disabled={virType1 === 'voltage'}>
+              V
+            </option>
+            <option value="current" disabled={virType1 === 'current'}>
+              I
+            </option>
+          </select>
+
+          <label htmlFor="virValue2" style={{ marginTop: '16px' }}>
+            Value
+          </label>
+          <input
+            id="virValue2"
+            type="text"
+            value={virValue2}
+            onChange={(e) => setVirValue2(e.target.value)}
+            placeholder={getVirPlaceholder(virType2)}
+          />
+
+          <div className="button-row" style={{ marginTop: '16px' }}>
+            <button className="btn-convert" onClick={handleSVICalculate} type="button">
+              Calculate
+            </button>
+            <button
+              className="btn-clear"
+              type="button"
+              onClick={() => {
+                setVirValue1('');
+                setVirValue2('');
+                setVirResult('');
+                setVirError('');
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {virError && <p className="error">{virError}</p>}
+          {virResult && (
+            <div className="results card" style={{ marginTop: '16px' }}>
+              <h2>S=VI Result</h2>
+              <p>{virResult}</p>
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'V=RI' ? (
+        <div className="card">
+          <label htmlFor="virSelect1">Select known value 1</label>
+          <select
+            id="virSelect1"
+            value={virType1}
+            onChange={(e) => {
+              const nextType = e.target.value;
+              setVirType1(nextType);
+              if (nextType === virType2) {
+                const fallback = ['voltage', 'current', 'resistance'].find(
+                  (type) => type !== nextType
+                );
+                setVirType2(fallback);
+              }
+            }}
+          >
+            <option value="voltage">Voltage</option>
+            <option value="current">Current</option>
+            <option value="resistance">Resistance</option>
+          </select>
+
+          <label htmlFor="virValue1" style={{ marginTop: '16px' }}>
+            Value
+          </label>
+          <input
+            id="virValue1"
+            type="text"
+            value={virValue1}
+            onChange={(e) => setVirValue1(e.target.value)}
+            placeholder={getVirPlaceholder(virType1)}
+          />
+
+          <label htmlFor="virSelect2" style={{ marginTop: '16px' }}>
+            Select known value 2
+          </label>
+          <select
+            id="virSelect2"
+            value={virType2}
+            onChange={(e) => {
+              if (e.target.value === virType1) {
+                return;
+              }
+              setVirType2(e.target.value);
+            }}
+          >
+            <option value="voltage" disabled={virType1 === 'voltage'}>
+              Voltage
+            </option>
+            <option value="current" disabled={virType1 === 'current'}>
+              Current
+            </option>
+            <option value="resistance" disabled={virType1 === 'resistance'}>
+              Resistance
+            </option>
+          </select>
+
+          <label htmlFor="virValue2" style={{ marginTop: '16px' }}>
+            Value
+          </label>
+          <input
+            id="virValue2"
+            type="text"
+            value={virValue2}
+            onChange={(e) => setVirValue2(e.target.value)}
+            placeholder={getVirPlaceholder(virType2)}
+          />
+
+          <div className="button-row" style={{ marginTop: '16px' }}>
+            <button className="btn-convert" onClick={handleVIRCalculate} type="button">
+              Calculate
+            </button>
+            <button
+              className="btn-clear"
+              type="button"
+              onClick={() => {
+                setVirValue1('');
+                setVirValue2('');
+                setVirResult('');
+                setVirError('');
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {virError && <p className="error">{virError}</p>}
+          {virResult && (
+            <div className="results card" style={{ marginTop: '16px' }}>
+              <h2>V=RI Result</h2>
+              <p>{virResult}</p>
+            </div>
+          )}
+        </div>
+      ) : null} 
+    </div>
+  );
+}
+export default App;

@@ -115,6 +115,12 @@ function App() {
   const [virValue2, setVirValue2] = useState('')
   const [virResult, setVirResult] = useState('')
   const [virError, setVirError] = useState('')
+  const [svirType1, setSvirType1] = useState('power')
+  const [svirType2, setSvirType2] = useState('voltage')
+  const [svirValue1, setSvirValue1] = useState('')
+  const [svirValue2, setSvirValue2] = useState('')
+  const [svirResult, setSvirResult] = useState('')
+  const [svirError, setSvirError] = useState('')
   const [waveform, setWaveform] = useState('sine')
   const [voltageResults, setVoltageResults] = useState(emptyVoltageResults)
   const [voltageError, setVoltageError] = useState('')
@@ -124,7 +130,9 @@ function App() {
       ? 'Enter current'
       : type === 'resistance'
         ? 'Enter resistance'
-        : 'Enter voltage'
+        : type === 'power'
+          ? 'Enter power'
+          : 'Enter voltage'
   )
 
   const isValidHex = (value) => /^[0-9a-fA-F]+$/.test(value)
@@ -287,6 +295,71 @@ function App() {
     )
   }
 
+  const handleSVICalculate = () => {
+    setSvirError('')
+    setSvirResult('')
+
+    if (svirType1 === svirType2) {
+      setSvirError('Choose two different known values.')
+      return
+    }
+
+    const trimmed1 = svirValue1.trim()
+    const trimmed2 = svirValue2.trim()
+
+    if (!trimmed1 || !trimmed2) {
+      setSvirError('Please enter both values.')
+      return
+    }
+
+    const value1 = Number(trimmed1)
+    const value2 = Number(trimmed2)
+
+    if (Number.isNaN(value1) || Number.isNaN(value2)) {
+      setSvirError('Values must be valid numbers.')
+      return
+    }
+
+    let missingType = ['power', 'voltage', 'current'].find(
+      (type) => type !== svirType1 && type !== svirType2
+    )
+
+    if (!missingType) {
+      setSvirError('Choose two different known values.')
+      return
+    }
+
+    let calculated = ''
+
+    if (missingType === 'power') {
+      const voltage = svirType1 === 'voltage' ? value1 : svirType2 === 'voltage' ? value2 : null
+      const current = svirType1 === 'current' ? value1 : svirType2 === 'current' ? value2 : null
+      if (voltage === null || current === null) {
+        setSvirError('To calculate power you must provide voltage and current.')
+        return
+      }
+      calculated = (voltage * current).toFixed(4)
+    } else if (missingType === 'voltage') {
+      const power = svirType1 === 'power' ? value1 : value2
+      const current = svirType1 === 'current' ? value1 : value2
+      if (current === 0) {
+        setSvirError('Current cannot be zero.')
+        return
+      }
+      calculated = (power / current).toFixed(4)
+    } else if (missingType === 'current') {
+      const power = svirType1 === 'power' ? value1 : value2
+      const voltage = svirType1 === 'voltage' ? value1 : value2
+      if (voltage === 0) {
+        setSvirError('Voltage cannot be zero.')
+        return
+      }
+      calculated = (power / voltage).toFixed(4)
+    }
+
+    setSvirResult(`${missingType.charAt(0).toUpperCase() + missingType.slice(1)} = ${calculated}`)
+  }
+
 
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter') {
@@ -301,6 +374,9 @@ function App() {
       break;
     case 'V=IR':
       handleVIRCalculate()
+      break;
+    case 'S=VI':
+      handleSVICalculate()
       break;
     default:
       break;
@@ -334,8 +410,13 @@ function App() {
         >
           V=RI 
         </button>
-
-
+        <button
+          className={`tab-button ${activeTab === 'S=VI' ? 'tab-button-active' : ''}`}
+          onClick={() => setActiveTab('S=VI')}
+          type="button"
+        >
+          S=VI
+        </button>
       </div>
 
       {activeTab === 'radix' ? (
@@ -487,6 +568,86 @@ function App() {
             <div className="results card" style={{ marginTop: '16px' }}>
               <h2>V=IR Result</h2>
               <p>{virResult}</p>
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'S=VI' ? (
+        <div className="card">
+          <label htmlFor="svirSelect1">Select known value 1</label>
+          <select
+            id="svirSelect1"
+            value={svirType1}
+            onChange={(e) => {
+              const nextType = e.target.value
+              setSvirType1(nextType)
+              if (nextType === svirType2) {
+                const fallback = ['power', 'voltage', 'current'].find(
+                  (type) => type !== nextType
+                )
+                setSvirType2(fallback)
+              }
+            }}
+          >
+            <option value="power">S</option>
+            <option value="voltage">Voltage</option>
+            <option value="current">Current</option>
+          </select>
+
+          <label htmlFor="svirValue1" style={{ marginTop: '16px' }}>Value</label>
+          <input
+            id="svirValue1"
+            type="text"
+            value={svirValue1}
+            onChange={(e) => setSvirValue1(e.target.value)}
+            placeholder={getVirPlaceholder(svirType1)}
+          />
+
+          <label htmlFor="svirSelect2" style={{ marginTop: '16px' }}>Select known value 2</label>
+          <select
+            id="svirSelect2"
+            value={svirType2}
+            onChange={(e) => {
+              if (e.target.value === svirType1) {
+                return
+              }
+              setSvirType2(e.target.value)
+            }}
+          >
+            <option value="power" disabled={svirType1 === 'power'}>S</option>
+            <option value="voltage" disabled={svirType1 === 'voltage'}>Voltage</option>
+            <option value="current" disabled={svirType1 === 'current'}>Current</option>
+          </select>
+
+          <label htmlFor="svirValue2" style={{ marginTop: '16px' }}>Value</label>
+          <input
+            id="svirValue2"
+            type="text"
+            value={svirValue2}
+            onChange={(e) => setSvirValue2(e.target.value)}
+            placeholder={getVirPlaceholder(svirType2)}
+          />
+
+          <div className="button-row" style={{ marginTop: '16px' }}>
+            <button className="btn-convert" onClick={handleSVICalculate} type="button">Calculate</button>
+            <button
+              className="btn-clear"
+              type="button"
+              onClick={() => {
+                setSvirValue1('')
+                setSvirValue2('')
+                setSvirResult('')
+                setSvirError('')
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {svirError && <p className="error">{svirError}</p>}
+          {svirResult && (
+            <div className="results card" style={{ marginTop: '16px' }}>
+              <h2>S=VI Result</h2>
+              <p>{svirResult}</p>
             </div>
           )}
         </div>
